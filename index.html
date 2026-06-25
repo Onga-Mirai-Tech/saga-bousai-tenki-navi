@@ -1,0 +1,1050 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>さが防災天気ナビ（β版）</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* 横スクロールバーのカスタマイズ */
+        .custom-scrollbar::-webkit-scrollbar { height: 6px; width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans min-h-screen p-4 md:p-8">
+
+    <div class="max-w-5xl mx-auto">
+        
+        <!-- ========================================== -->
+        <!-- 1. ヘッダーセクション                        -->
+        <!-- ========================================== -->
+        <header class="mb-6 text-center md:text-left">
+            <h1 class="text-2xl md:text-3xl font-bold text-slate-800 flex items-center justify-center md:justify-start gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-blue-500"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>
+                さが防災天気ナビ（β版）
+            </h1>
+            <p id="location-display" class="text-sm text-slate-600 mt-3 font-medium">
+                📍 現在の地点: 佐賀県 佐賀市
+            </p>
+            <p class="text-sm text-slate-500 mt-1">
+                ⏱️ 1時間ごとのデータ（過去も検索可能）
+            </p>
+        </header>
+
+        <!-- ========================================== -->
+        <!-- 2. メインコンテンツエリア                    -->
+        <!-- ========================================== -->
+        <main class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 md:p-6 mb-8">
+            
+            <!-- 使用上の注意 (インフォメーション) -->
+            <div class="mb-6 bg-slate-50 text-slate-700 text-sm p-4 md:p-5 rounded-xl border border-slate-200">
+                <h2 class="font-bold text-slate-800 mb-2 flex items-center gap-1.5 border-b border-slate-200 pb-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-blue-500"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg>
+                    使用上の注意
+                </h2>
+                <ul class="list-disc list-inside space-y-1.5 mt-2">
+                    <li><strong class="font-semibold">データについて：</strong>本アプリは個人開発のβ版です。気象データや潮位予測はあくまで参考値としてご利用ください。</li>
+                    <li><strong class="font-semibold">天気の判定：</strong>降水量の有無のみを用いて「晴れ」か「雨」かを簡易的に判定しています。</li>
+                    <li><strong class="font-semibold">潮位の表示：</strong>沿岸部の市区町村は近隣海域を自動探索して予測値を表示します。海が見つからない内陸部では非表示となります。</li>
+                    <li><strong class="font-semibold">予報の精度：</strong>1時間ごとのデータに基づくため、急な雨雲の動きや天候の急変など、リアルタイムな連動予報には対応していません。</li>
+                </ul>
+            </div>
+
+            <!-- 検索コントロール (場所・日付) -->
+            <div class="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                    <label for="city-input" class="block font-medium text-slate-700 mb-2">場所 (佐賀県内):</label>
+                    <input type="text" id="city-input" list="city-list" class="w-full border border-slate-300 rounded-lg px-4 py-2 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="入力して検索 (例: 佐賀市)">
+                    <datalist id="city-list"></datalist>
+                </div>
+
+                <div class="bg-slate-50 p-4 rounded-xl border border-slate-100 flex flex-col justify-end">
+                    <label for="date-picker" class="block font-medium text-slate-700 mb-2">日付:</label>
+                    <div class="flex gap-2">
+                        <input type="date" id="date-picker" class="w-full border border-slate-300 rounded-lg px-4 py-2 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <button id="search-btn" class="px-6 py-2 bg-blue-500 hover:bg-blue-600 text-white font-medium rounded-lg transition-colors shadow-sm whitespace-nowrap">
+                            検索
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 潮回り情報表示 -->
+            <div id="tide-info" class="hidden items-center justify-center gap-2 bg-teal-50 text-teal-700 px-4 py-3 rounded-lg border border-teal-100 font-bold mb-6">
+                <!-- JSで挿入 -->
+            </div>
+
+            <!-- 注意喚起アラート -->
+            <div id="alerts-container" class="hidden flex-col gap-2 mb-6"></div>
+
+            <!-- エラー表示 -->
+            <div id="error-message" class="hidden bg-red-50 text-red-600 p-4 rounded-lg text-center mb-4 border border-red-100">
+                <p class="font-bold mb-1" id="error-title">データの取得に失敗しました</p>
+                <p class="text-sm" id="error-desc">選択した日付のデータが見つからないか、まだ予報が発表されていません。<br>今日から2週間以内の日付、または過去の日付を選択してお試しください。</p>
+            </div>
+
+            <!-- ローディングインジケーター -->
+            <div id="loading" class="hidden flex-col items-center justify-center py-20 text-slate-400">
+                <svg class="animate-spin h-10 w-10 mb-4 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <p>気象データを取得中...</p>
+            </div>
+
+            <!-- 検索日のサマリー -->
+            <div id="summary-container" class="hidden mb-6">
+                <h2 class="text-lg font-bold text-slate-800 mb-3 border-l-4 border-blue-500 pl-3">検索日の天気</h2>
+                <div id="main-summary" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-3">
+                    <!-- JSで挿入 -->
+                </div>
+            </div>
+
+            <!-- 表示切替タブ -->
+            <div id="view-tabs" class="hidden mb-4 border-b border-slate-200 overflow-x-auto pb-1 flex gap-2 custom-scrollbar">
+                <button class="view-tab-btn px-4 py-2 text-sm font-medium rounded-t-lg bg-blue-50 text-blue-700 border-b-2 border-blue-600 transition-colors whitespace-nowrap" data-view="table">一覧表</button>
+                <button class="view-tab-btn px-4 py-2 text-sm font-medium rounded-t-lg text-slate-500 hover:bg-slate-50 transition-colors whitespace-nowrap" data-view="chart-temp">気温グラフ</button>
+                <button class="view-tab-btn px-4 py-2 text-sm font-medium rounded-t-lg text-slate-500 hover:bg-slate-50 transition-colors whitespace-nowrap" data-view="chart-precip">降水量グラフ</button>
+                <button class="view-tab-btn px-4 py-2 text-sm font-medium rounded-t-lg text-slate-500 hover:bg-slate-50 transition-colors whitespace-nowrap" data-view="chart-wind">風速グラフ</button>
+                <button id="tab-tide" class="view-tab-btn px-4 py-2 text-sm font-medium rounded-t-lg text-slate-500 hover:bg-slate-50 transition-colors whitespace-nowrap" data-view="chart-tide">潮位グラフ</button>
+            </div>
+
+            <!-- データ表示エリア (テーブル/グラフ) -->
+            <div id="data-display-area" class="hidden">
+                <!-- テーブル -->
+                <div id="table-container" class="overflow-x-auto custom-scrollbar">
+                    <table class="w-full text-left whitespace-nowrap">
+                        <thead>
+                            <tr class="border-b-2 border-slate-200 text-slate-500 text-sm">
+                                <th class="py-3 px-4 font-semibold">時間</th>
+                                <th class="py-3 px-4 font-semibold">天気 / 降水量</th>
+                                <th class="py-3 px-4 font-semibold">気温</th>
+                                <th class="py-3 px-4 font-semibold">風速</th>
+                                <th class="py-3 px-4 font-semibold text-teal-600 tide-col">潮位 (予測) / 干満</th>
+                            </tr>
+                        </thead>
+                        <tbody id="data-tbody" class="text-slate-600"></tbody>
+                    </table>
+                </div>
+
+                <!-- グラフ -->
+                <div id="chart-container" class="hidden relative w-full h-[50vh] mt-4">
+                    <canvas id="forecastChart"></canvas>
+                </div>
+            </div>
+            
+        </main>
+
+        <!-- ========================================== -->
+        <!-- 3. 追加情報セクション (週間・過去)           -->
+        <!-- ========================================== -->
+        
+        <!-- 週間天気 -->
+        <section id="weekly-section" class="hidden bg-white rounded-2xl shadow-sm border border-slate-200 p-4 md:p-6 mb-8">
+            <h2 class="text-xl font-bold text-slate-800 mb-2 border-l-4 border-emerald-500 pl-3">検索日から1週間の天気</h2>
+            <p class="text-sm text-slate-500 mb-4">
+                検索した日付から1週間の天気予報（または過去データ）です。<br>
+                <span class="text-xs text-red-500 mt-1 inline-block">※システムの仕様上、未来の予報データは「本日から最大2週間先まで」となります。そのため検索日によっては、1週間分のデータがすべて表示されない場合がありますのでご了承ください。</span>
+            </p>
+            <div class="flex overflow-x-auto gap-3 pb-2 custom-scrollbar" id="weekly-cards"></div>
+        </section>
+
+        <!-- 過去3年間の同日データ -->
+        <section id="historical-section" class="hidden bg-slate-100 rounded-2xl shadow-inner border border-slate-200 p-4 md:p-6 mb-8">
+            <h2 class="text-xl font-bold text-slate-800 mb-2 border-l-4 border-indigo-500 pl-3">過去3年間の同日データ</h2>
+            <p class="text-sm text-slate-500 mb-6">検索した日付と同じ日の過去データを比較できます。（※潮位予測は表示されません）</p>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4" id="historical-cards"></div>
+        </section>
+        
+        <!-- 検索日の前後5日間の災害 (Wikidata API連携) -->
+        <section id="disaster-section" class="hidden bg-orange-50 rounded-2xl shadow-sm border border-orange-200 p-4 md:p-6 mb-8">
+            <h2 class="text-xl font-bold text-slate-800 mb-2 border-l-4 border-red-500 pl-3 flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-red-500"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                検索日の前後5日間に発生した災害
+            </h2>
+            <p class="text-sm text-slate-600 mb-4">
+                指定した日付の前後5日間（計11日間）に、日本国内で発生した主な自然災害の記録です。<br>
+                <span class="text-xs text-slate-500">データ連携：Wikidata（ウィキデータ）オープンデータAPI</span>
+            </p>
+            
+            <!-- 取得状態を表すローディング -->
+            <div id="disaster-loading" class="hidden text-slate-500 text-sm flex items-center justify-center gap-2 py-4 bg-white rounded-xl border border-orange-100">
+                <svg class="animate-spin h-5 w-5 text-orange-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                <span>広域データベースを検索中 (最大11日分)...</span>
+            </div>
+            
+            <!-- カード一覧コンテナ -->
+            <div id="disaster-cards" class="flex flex-col gap-4"></div>
+        </section>
+
+        <!-- ========================================== -->
+        <!-- 4. フッター                                  -->
+        <!-- ========================================== -->
+        <footer class="mt-8 text-center text-xs text-slate-400 pb-8">
+            <p class="font-medium text-slate-500">&copy; Saga-Mirai-Tech</p>
+            <p class="mt-2">Weather Data provided by <a href="https://open-meteo.com/" target="_blank" class="underline hover:text-slate-600">Open-Meteo.com</a></p>
+        </footer>
+
+    </div>
+
+    <!-- ========================================================================================= -->
+    <!-- JavaScript Application Logic                                                              -->
+    <!-- ========================================================================================= -->
+    <script>
+        // -----------------------------------------------------------
+        // 1. DOM要素の取得
+        // -----------------------------------------------------------
+        const DOM = {
+            loading: document.getElementById('loading'),
+            error: document.getElementById('error-message'),
+            errorTitle: document.getElementById('error-title'),
+            errorDesc: document.getElementById('error-desc'),
+            
+            cityInput: document.getElementById('city-input'),
+            cityList: document.getElementById('city-list'),
+            datePicker: document.getElementById('date-picker'),
+            searchBtn: document.getElementById('search-btn'),
+            locDisplay: document.getElementById('location-display'),
+            
+            tideInfo: document.getElementById('tide-info'),
+            alerts: document.getElementById('alerts-container'),
+            summary: document.getElementById('summary-container'),
+            mainSummary: document.getElementById('main-summary'),
+            
+            viewTabs: document.getElementById('view-tabs'),
+            tabBtns: document.querySelectorAll('.view-tab-btn'),
+            tabTide: document.getElementById('tab-tide'),
+            dataDisplay: document.getElementById('data-display-area'),
+            table: document.getElementById('table-container'),
+            tbody: document.getElementById('data-tbody'),
+            chart: document.getElementById('chart-container'),
+            
+            weeklySec: document.getElementById('weekly-section'),
+            weeklyCards: document.getElementById('weekly-cards'),
+            histSec: document.getElementById('historical-section'),
+            histCards: document.getElementById('historical-cards'),
+            
+            disasterSec: document.getElementById('disaster-section'),
+            disasterLoading: document.getElementById('disaster-loading'),
+            disasterCards: document.getElementById('disaster-cards')
+        };
+
+        // -----------------------------------------------------------
+        // 2. アプリケーションの状態管理とデータ定義
+        // -----------------------------------------------------------
+        const AppState = {
+            lat: 33.263,
+            lon: 130.308,
+            locName: "佐賀県 佐賀市",
+            currentView: 'table',
+            chartInstance: null,
+            weatherData: null,
+            tideData: null,
+            isCoastal: false
+        };
+
+        const SagaCities = {
+            "佐賀地域": {
+                "佐賀市": { lat: 33.263, lon: 130.308 },
+                "小城市": { lat: 33.288, lon: 130.198 },
+                "神埼市": { lat: 33.315, lon: 130.370 },
+                "吉野ヶ里町": { lat: 33.325, lon: 130.395 }
+            },
+            "鳥栖・三養基地域": {
+                "鳥栖市": { lat: 33.378, lon: 130.518 },
+                "基山町": { lat: 33.419, lon: 130.521 },
+                "上峰町": { lat: 33.328, lon: 130.430 },
+                "みやき町": { lat: 33.332, lon: 130.463 }
+            },
+            "唐津・東松浦地域": {
+                "唐津市": { lat: 33.450, lon: 129.968 },
+                "玄海町": { lat: 33.486, lon: 129.875 }
+            },
+            "伊万里・西松浦地域": {
+                "伊万里市": { lat: 33.268, lon: 129.878 },
+                "有田町": { lat: 33.187, lon: 129.882 }
+            },
+            "杵藤地域": {
+                "武雄市": { lat: 33.195, lon: 130.021 },
+                "鹿島市": { lat: 33.109, lon: 130.095 },
+                "嬉野市": { lat: 33.097, lon: 129.982 },
+                "多久市": { lat: 33.284, lon: 130.121 },
+                "大町町": { lat: 33.218, lon: 130.106 },
+                "江北町": { lat: 33.215, lon: 130.155 },
+                "白石町": { lat: 33.167, lon: 130.155 },
+                "太良町": { lat: 33.018, lon: 130.188 }
+            }
+        };
+
+        const CityLookup = {};
+
+        // -----------------------------------------------------------
+        // 3. 初期化処理 & イベントリスナー設定
+        // -----------------------------------------------------------
+        function initApp() {
+            for (const region in SagaCities) {
+                for (const cityName in SagaCities[region]) {
+                    CityLookup[cityName] = SagaCities[region][cityName];
+                    const option = document.createElement('option');
+                    option.value = cityName;
+                    DOM.cityList.appendChild(option);
+                }
+            }
+            DOM.cityInput.value = "佐賀市";
+
+            const today = new Date();
+            const maxDate = new Date(today);
+            maxDate.setDate(today.getDate() + 14);
+            
+            DOM.datePicker.value = formatDate(today);
+            DOM.datePicker.max = formatDate(maxDate);
+            
+            setupEventListeners();
+            executeSearch(); 
+        }
+
+        function setupEventListeners() {
+            DOM.searchBtn.addEventListener('click', executeSearch);
+            
+            DOM.cityInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') executeSearch();
+            });
+
+            DOM.tabBtns.forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    DOM.tabBtns.forEach(b => {
+                        b.classList.remove('bg-blue-50', 'text-blue-700', 'border-b-2', 'border-blue-600');
+                        b.classList.add('text-slate-500', 'hover:bg-slate-50');
+                    });
+                    const target = e.currentTarget;
+                    target.classList.remove('text-slate-500', 'hover:bg-slate-50');
+                    target.classList.add('bg-blue-50', 'text-blue-700', 'border-b-2', 'border-blue-600');
+                    
+                    AppState.currentView = target.dataset.view;
+                    renderDataDisplay();
+                });
+            });
+        }
+
+        // -----------------------------------------------------------
+        // 4. API通信ロジック
+        // -----------------------------------------------------------
+        
+        async function executeSearch() {
+            const cityName = DOM.cityInput.value.trim();
+            const dateString = DOM.datePicker.value;
+            
+            if (!CityLookup[cityName]) {
+                hideAllContainers();
+                showError("場所が見つかりません", "佐賀県内の正しい市区町村名を選択、または入力してください。");
+                return;
+            }
+
+            const cityData = CityLookup[cityName];
+            AppState.lat = cityData.lat;
+            AppState.lon = cityData.lon;
+            AppState.locName = `佐賀県 ${cityName}`;
+            DOM.locDisplay.innerHTML = `📍 現在の地点: <span class="font-bold text-indigo-600">${AppState.locName}</span>`;
+
+            hideAllContainers();
+            DOM.loading.classList.remove('hidden');
+            DOM.loading.classList.add('flex');
+
+            const targetDateObj = new Date(dateString);
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+
+            const maxAllowedDate = new Date(today);
+            maxAllowedDate.setDate(today.getDate() + 15);
+            let endDateObj = new Date(targetDateObj);
+            endDateObj.setDate(endDateObj.getDate() + 6);
+            if (endDateObj > maxAllowedDate) endDateObj = new Date(maxAllowedDate);
+            const endDateString = formatDate(endDateObj);
+
+            let weatherUrl, dailyUrl;
+            if (targetDateObj < today) {
+                weatherUrl = `https://archive-api.open-meteo.com/v1/archive?latitude=${AppState.lat}&longitude=${AppState.lon}&start_date=${dateString}&end_date=${dateString}&hourly=temperature_2m,precipitation,wind_speed_10m&timezone=Asia%2FTokyo`;
+                dailyUrl = `https://archive-api.open-meteo.com/v1/archive?latitude=${AppState.lat}&longitude=${AppState.lon}&start_date=${dateString}&end_date=${endDateString}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,sunrise,sunset&timezone=Asia%2FTokyo`;
+            } else {
+                weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${AppState.lat}&longitude=${AppState.lon}&start_date=${dateString}&end_date=${dateString}&hourly=temperature_2m,precipitation,wind_speed_10m&timezone=Asia%2FTokyo`;
+                dailyUrl = `https://api.open-meteo.com/v1/forecast?latitude=${AppState.lat}&longitude=${AppState.lon}&start_date=${dateString}&end_date=${endDateString}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,sunrise,sunset&timezone=Asia%2FTokyo`;
+            }
+
+            const historyPromises = [];
+            for (let i = 1; i <= 3; i++) {
+                const pastDate = new Date(targetDateObj);
+                pastDate.setFullYear(targetDateObj.getFullYear() - i);
+                const pastDateString = formatDate(pastDate);
+                const histUrl = `https://archive-api.open-meteo.com/v1/archive?latitude=${AppState.lat}&longitude=${AppState.lon}&start_date=${pastDateString}&end_date=${pastDateString}&hourly=temperature_2m,precipitation,wind_speed_10m&timezone=Asia%2FTokyo`;
+                historyPromises.push(fetch(histUrl).then(res => res.ok ? res.json() : null).catch(() => null));
+            }
+
+            try {
+                // 並行してAPIリクエストを実行 (天気関連)
+                const [weatherResObj, dailyResObj, marineResult, ...historyResults] = await Promise.all([
+                    fetch(weatherUrl).then(res => { if(!res.ok) throw new Error("気象APIエラー"); return res.json(); }),
+                    fetch(dailyUrl).then(res => res.ok ? res.json() : null),
+                    checkCoastal(AppState.lat, AppState.lon, dateString),
+                    ...historyPromises
+                ]);
+
+                AppState.weatherData = weatherResObj;
+                AppState.isCoastal = marineResult.isCoastal;
+
+                const moonAgeObj = calculateMoonAgeAndTide(targetDateObj);
+                AppState.tideData = AppState.isCoastal ? generateMockTideData(AppState.weatherData.hourly.time, moonAgeObj.ageNumber) : null;
+
+                DOM.loading.classList.remove('flex');
+                DOM.loading.classList.add('hidden');
+                
+                DOM.viewTabs.classList.remove('hidden');
+                DOM.dataDisplay.classList.remove('hidden');
+
+                if (AppState.isCoastal) {
+                    DOM.tideInfo.innerHTML = `🌊 今日の潮回り：<span class="text-xl ml-1">${moonAgeObj.tideName}</span> <span class="text-xs font-normal ml-2">(月齢: ${moonAgeObj.age})</span>`;
+                    DOM.tideInfo.classList.remove('hidden');
+                    DOM.tideInfo.classList.add('flex');
+                    DOM.tabTide.style.display = 'inline-block';
+                } else {
+                    DOM.tabTide.style.display = 'none';
+                    if(AppState.currentView === 'chart-tide') document.querySelector('[data-view="table"]').click();
+                }
+
+                renderAlerts();
+                renderMainSummary(dailyResObj);
+                renderDataDisplay(); 
+                renderTable(dateString);
+                renderWeeklyForecast(dailyResObj);
+                renderHistoricalData(historyResults, targetDateObj);
+                
+                // Wikidata APIの呼び出し（災害情報：前後5日間）
+                fetchAndRenderDisasterData(targetDateObj);
+
+            } catch (error) {
+                console.error("エラー:", error);
+                DOM.loading.classList.remove('flex');
+                DOM.loading.classList.add('hidden');
+                showError("データの取得に失敗しました", "選択した日付のデータが見つからないか、まだ予報が発表されていません。<br>今日から2週間以内の日付、または過去の日付を選択してお試しください。");
+            }
+        }
+
+        async function checkCoastal(lat, lon, dateString) {
+            const offsets = [
+                [0, 0], [0.05, 0], [-0.05, 0], [0, 0.05], [0, -0.05],
+                [0.08, 0.08], [0.08, -0.08], [-0.08, 0.08], [-0.08, -0.08]
+            ];
+            const promises = offsets.map(offset => {
+                const testLat = lat + offset[0];
+                const testLon = lon + offset[1];
+                return fetch(`https://marine-api.open-meteo.com/v1/marine?latitude=${testLat}&longitude=${testLon}&start_date=${dateString}&end_date=${dateString}&hourly=wave_height&timezone=Asia%2FTokyo`)
+                    .then(res => { if(!res.ok) throw new Error("Not ocean"); return res.json(); })
+                    .then(data => {
+                        const waves = data.hourly && data.hourly.wave_height;
+                        if (!waves || waves.every(v => v === null)) throw new Error("No wave data (Land)");
+                        return data;
+                    });
+            });
+
+            try {
+                const firstSuccess = await Promise.any(promises);
+                return { isCoastal: true, data: firstSuccess };
+            } catch(e) {
+                return { isCoastal: false, data: null };
+            }
+        }
+
+        // Wikidata SPARQL APIによる災害データの取得 (前後5日間)
+        async function fetchAndRenderDisasterData(targetDateObj) {
+            DOM.disasterSec.classList.remove('hidden');
+            DOM.disasterCards.innerHTML = '';
+            DOM.disasterLoading.classList.remove('hidden');
+            DOM.disasterLoading.classList.add('flex');
+
+            // 検索対象となる日付（前後5日）の条件式を生成
+            const dateConditions = [];
+            for (let i = -5; i <= 5; i++) {
+                const tempDate = new Date(targetDateObj);
+                tempDate.setDate(targetDateObj.getDate() + i);
+                const m = tempDate.getMonth() + 1;
+                const d = tempDate.getDate();
+                dateConditions.push(`(MONTH(?date) = ${m} && DAY(?date) = ${d})`);
+            }
+            const filterCondition = dateConditions.join(' || ');
+
+            // Wikidata SPARQL Query: 日本の自然災害で、指定した11日間のいずれかに該当するもの
+            const sparqlQuery = `
+                SELECT DISTINCT ?disasterLabel ?date ?typeLabel ?locationLabel ?article WHERE {
+                  ?disaster wdt:P17 wd:Q17 ;
+                            wdt:P31/wdt:P279* wd:Q8065 ;
+                            wdt:P585|wdt:P580|wdt:P582 ?date .
+                  FILTER(${filterCondition})
+                  OPTIONAL { ?disaster wdt:P31 ?type . }
+                  OPTIONAL { ?disaster wdt:P276|wdt:P131 ?location . }
+                  OPTIONAL {
+                    ?article schema:about ?disaster ;
+                             schema:isPartOf <https://ja.wikipedia.org/> .
+                  }
+                  SERVICE wikibase:label { bd:serviceParam wikibase:language "ja". }
+                }
+            `;
+
+            const url = 'https://query.wikidata.org/sparql?query=' + encodeURIComponent(sparqlQuery) + '&format=json';
+
+            try {
+                const response = await fetch(url, {
+                    headers: { 'Accept': 'application/sparql-results+json' }
+                });
+
+                if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+                
+                const data = await response.json();
+                
+                DOM.disasterLoading.classList.remove('flex');
+                DOM.disasterLoading.classList.add('hidden');
+
+                const results = data.results.bindings;
+
+                if (!results || results.length === 0) {
+                    renderEmptyDisasterMessage();
+                    return;
+                }
+
+                // 取得したデータを整形（名前で一意にまとめる）
+                const uniqueDisastersMap = new Map();
+
+                results.forEach(b => {
+                    const name = b.disasterLabel.value;
+                    // ウィキデータに日本語ラベルが存在しない場合（Q番号のまま返ってくる場合）は除外
+                    if (/^Q\d+$/.test(name)) return; 
+
+                    const dateStr = b.date.value;
+                    const type = b.typeLabel ? b.typeLabel.value : '不明';
+                    const location = b.locationLabel ? b.locationLabel.value : '';
+                    const article = b.article ? b.article.value : null;
+
+                    if (!uniqueDisastersMap.has(name)) {
+                        uniqueDisastersMap.set(name, {
+                            name: name,
+                            date: new Date(dateStr),
+                            types: new Set([type]),
+                            locations: new Set(location && !/^Q\d+$/.test(location) ? [location] : []),
+                            article: article
+                        });
+                    } else {
+                        const d = uniqueDisastersMap.get(name);
+                        d.types.add(type);
+                        if (location && !/^Q\d+$/.test(location)) d.locations.add(location);
+                        if (article && !d.article) d.article = article;
+                    }
+                });
+
+                // 発生日が新しい順にソート
+                const sortedDisasters = Array.from(uniqueDisastersMap.values()).sort((a, b) => b.date - a.date);
+
+                if (sortedDisasters.length === 0) {
+                    renderEmptyDisasterMessage();
+                    return;
+                }
+
+                const currentYear = new Date().getFullYear(); // 今年
+
+                // HTMLカード生成
+                sortedDisasters.forEach(d => {
+                    const typesStr = Array.from(d.types).join('、');
+                    const locsArr = Array.from(d.locations);
+                    let locsStr = locsArr.slice(0, 4).join('、');
+                    if(locsArr.length > 4) locsStr += ' など';
+                    if(!locsStr) locsStr = '広域・複数地域または不明';
+
+                    const eventYear = d.date.getFullYear();
+                    const yearsAgo = currentYear - eventYear;
+                    
+                    let yearsAgoText = '';
+                    if (yearsAgo === 0) yearsAgoText = '今年発生';
+                    else if (yearsAgo > 0) yearsAgoText = `今年で${yearsAgo}年`;
+                    else yearsAgoText = `未来の予測データ`; // 万が一未来のデータがあった場合
+
+                    DOM.disasterCards.innerHTML += `
+                        <div class="bg-white rounded-xl p-4 border border-orange-200 shadow-sm flex flex-col gap-3 transition hover:shadow-md">
+                            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-100 pb-2">
+                                <h3 class="font-bold text-slate-800 text-lg leading-tight">${d.name}</h3>
+                                ${d.article ? `
+                                    <a href="${d.article}" target="_blank" rel="noopener noreferrer" class="shrink-0 text-xs bg-blue-50 text-blue-700 border border-blue-200 px-3 py-1.5 rounded-md hover:bg-blue-100 transition-colors flex items-center gap-1.5 font-medium">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>
+                                        Wikipediaを開く
+                                    </a>
+                                ` : ''}
+                            </div>
+                            
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                                <div class="bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                                    <span class="text-xs text-slate-500 font-bold block mb-1">発生年月日</span>
+                                    <span class="text-slate-800 font-medium">${eventYear}年${d.date.getMonth()+1}月${d.date.getDate()}日</span>
+                                    <span class="text-orange-600 text-xs font-bold ml-1">(${yearsAgoText})</span>
+                                </div>
+                                <div class="bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                                    <span class="text-xs text-slate-500 font-bold block mb-1">災害種別</span>
+                                    <span class="text-slate-800 font-medium">${typesStr}</span>
+                                </div>
+                                <div class="bg-slate-50 p-2.5 rounded-lg border border-slate-100 sm:col-span-2">
+                                    <span class="text-xs text-slate-500 font-bold block mb-1">主な発生場所</span>
+                                    <span class="text-slate-800 font-medium">${locsStr}</span>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+
+            } catch (error) {
+                console.error("Wikidata API通信エラー:", error);
+                DOM.disasterLoading.classList.remove('flex');
+                DOM.disasterLoading.classList.add('hidden');
+                
+                renderEmptyDisasterMessage();
+            }
+        }
+
+        function renderEmptyDisasterMessage() {
+            DOM.disasterCards.innerHTML = `
+                <div class="bg-white rounded-xl p-6 border border-slate-200 text-center text-slate-600 shadow-sm">
+                    データベース上には、検索日の前後5日間に発生した日本国内の災害記録は見つかりませんでした。<br>
+                    <div class="mt-4 p-4 bg-orange-50 border border-orange-100 rounded-lg inline-block text-left max-w-lg">
+                        <strong class="text-orange-700 block mb-1 flex items-center gap-1.5">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                            防災啓発
+                        </strong>
+                        災害はいつ起こるか予測がつきません。大きな災害の記録がない日であっても、ハザードマップの確認や備蓄品の点検など、日常的な防災への備えを常に怠らないようにしましょう。
+                    </div>
+                </div>
+            `;
+        }
+
+        // -----------------------------------------------------------
+        // 5. UI レンダリング関連 (その他)
+        // -----------------------------------------------------------
+
+        function hideAllContainers() {
+            [DOM.table, DOM.chart, DOM.viewTabs, DOM.dataDisplay, DOM.tideInfo, 
+             DOM.alerts, DOM.error, DOM.summary, DOM.weeklySec, DOM.histSec, DOM.disasterSec]
+             .forEach(el => el.classList.add('hidden'));
+        }
+
+        function showError(title, desc) {
+            DOM.error.classList.remove('hidden');
+            DOM.errorTitle.innerText = title;
+            DOM.errorDesc.innerHTML = desc;
+        }
+
+        function renderDataDisplay() {
+            if (AppState.currentView === 'table') {
+                DOM.table.classList.remove('hidden');
+                DOM.chart.classList.add('hidden');
+                const currentHourRow = DOM.tbody.querySelector('.border-blue-200');
+                if (currentHourRow) currentHourRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            } else {
+                DOM.table.classList.add('hidden');
+                DOM.chart.classList.remove('hidden');
+                renderChart();
+            }
+        }
+
+        function renderTable(targetDateString) {
+            DOM.tbody.innerHTML = ''; 
+            document.querySelectorAll('.tide-col').forEach(el => el.style.display = AppState.isCoastal ? '' : 'none');
+
+            const times = AppState.weatherData.hourly.time;
+            const temps = AppState.weatherData.hourly.temperature_2m;
+            const precips = AppState.weatherData.hourly.precipitation;
+            const winds = AppState.weatherData.hourly.wind_speed_10m;
+
+            const now = new Date();
+            const isToday = targetDateString === formatDate(now);
+            const currentHour = now.getHours();
+            let currentHourRow = null; 
+
+            for (let i = 0; i < times.length; i++) {
+                const hours = new Date(times[i]).getHours().toString().padStart(2, '0');
+                const isCurrentHourRow = isToday && parseInt(hours, 10) === currentHour;
+                
+                let tideHtml = '';
+                if (AppState.isCoastal && AppState.tideData) {
+                    let tidePeakLabel = "";
+                    if (i > 0 && i < AppState.tideData.length - 1) {
+                        if (AppState.tideData[i] > AppState.tideData[i-1] && AppState.tideData[i] > AppState.tideData[i+1]) {
+                            tidePeakLabel = '<span class="ml-2 px-2 py-0.5 bg-red-100 text-red-600 text-xs rounded-full font-bold">満潮</span>';
+                        } else if (AppState.tideData[i] < AppState.tideData[i-1] && AppState.tideData[i] < AppState.tideData[i+1]) {
+                            tidePeakLabel = '<span class="ml-2 px-2 py-0.5 bg-blue-100 text-blue-600 text-xs rounded-full font-bold">干潮</span>';
+                        }
+                    }
+                    tideHtml = `
+                        <td class="py-3 px-4 text-teal-600 font-medium tide-col">
+                            ${AppState.tideData[i].toFixed(2)} <span class="text-xs text-teal-400">m</span>
+                            ${tidePeakLabel}
+                        </td>
+                    `;
+                }
+
+                const tr = document.createElement('tr');
+                if (isCurrentHourRow) {
+                    tr.className = "border-b-2 border-blue-200 bg-blue-50 transition-colors";
+                    currentHourRow = tr;
+                } else {
+                    tr.className = "border-b border-slate-100 hover:bg-slate-50 transition-colors";
+                }
+                
+                tr.innerHTML = `
+                    <td class="py-3 px-4 font-medium ${isCurrentHourRow ? 'text-blue-700' : 'text-slate-700'}">
+                        ${hours}:00
+                        ${isCurrentHourRow ? '<span class="ml-2 px-2 py-0.5 bg-blue-500 text-white text-xs rounded font-bold shadow-sm">現在</span>' : ''}
+                    </td>
+                    <td class="py-3 px-4 ${getPrecipClass(precips[i])}">
+                        ${getWeatherIcon(precips[i])}
+                        ${precips[i].toFixed(1)} <span class="text-xs opacity-60">mm</span>
+                    </td>
+                    <td class="py-3 px-4 ${getTempClass(temps[i])}">${temps[i].toFixed(1)} <span class="text-xs opacity-60">℃</span></td>
+                    <td class="py-3 px-4 ${getWindClass(winds[i])}">${winds[i].toFixed(1)} <span class="text-xs opacity-60">m/s</span></td>
+                    ${tideHtml}
+                `;
+                DOM.tbody.appendChild(tr);
+            }
+            
+            if (currentHourRow && AppState.currentView === 'table') {
+                setTimeout(() => currentHourRow.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100);
+            }
+        }
+
+        function renderChart() {
+            const ctx = document.getElementById('forecastChart').getContext('2d');
+            if (AppState.chartInstance) AppState.chartInstance.destroy();
+
+            const labels = AppState.weatherData.hourly.time.map(t => `${new Date(t).getHours()}:00`);
+            let datasets = [];
+            let yAxisOptions = {};
+
+            switch (AppState.currentView) {
+                case 'chart-temp':
+                    datasets = [{ label: '気温 (℃)', data: AppState.weatherData.hourly.temperature_2m, borderColor: '#fb923c', backgroundColor: 'rgba(251, 146, 60, 0.2)', fill: true, tension: 0.4 }];
+                    yAxisOptions = { title: { display: true, text: '気温 (℃)', color: '#fb923c', font: {weight: 'bold'} } };
+                    break;
+                case 'chart-precip':
+                    datasets = [{ label: '降水量 (mm)', data: AppState.weatherData.hourly.precipitation, backgroundColor: '#60a5fa', type: 'bar' }];
+                    yAxisOptions = { title: { display: true, text: '降水量 (mm)', color: '#3b82f6', font: {weight: 'bold'} }, min: 0 };
+                    break;
+                case 'chart-wind':
+                    datasets = [{ label: '風速 (m/s)', data: AppState.weatherData.hourly.wind_speed_10m, borderColor: '#94a3b8', backgroundColor: 'rgba(148, 163, 184, 0.2)', fill: true, tension: 0.4 }];
+                    yAxisOptions = { title: { display: true, text: '風速 (m/s)', color: '#64748b', font: {weight: 'bold'} }, min: 0 };
+                    break;
+                case 'chart-tide':
+                    datasets = [{ label: '潮位 (m)', data: AppState.tideData, borderColor: '#2dd4bf', backgroundColor: 'rgba(45, 212, 191, 0.2)', fill: true, tension: 0.4 }];
+                    yAxisOptions = { title: { display: true, text: '潮位 (m)', color: '#14b8a6', font: {weight: 'bold'} } };
+                    break;
+            }
+
+            AppState.chartInstance = new Chart(ctx, {
+                type: 'line',
+                data: { labels, datasets },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: { legend: { display: false } },
+                    scales: { x: { grid: { display: false } }, y: yAxisOptions }
+                }
+            });
+        }
+
+        function renderMainSummary(dailyData) {
+            const temps = AppState.weatherData.hourly.temperature_2m;
+            const precips = AppState.weatherData.hourly.precipitation;
+            
+            const maxTemp = Math.max(...temps).toFixed(1);
+            const minTemp = Math.min(...temps).toFixed(1);
+            const totalPrecip = precips.reduce((a, b) => a + b, 0).toFixed(1);
+
+            let sunriseHtml = '-';
+            let sunsetHtml = '-';
+            if (dailyData && dailyData.daily && dailyData.daily.sunrise && dailyData.daily.sunrise[0]) {
+                const srDate = new Date(dailyData.daily.sunrise[0]);
+                sunriseHtml = `${srDate.getHours().toString().padStart(2, '0')}:${srDate.getMinutes().toString().padStart(2, '0')}`;
+                
+                const ssDate = new Date(dailyData.daily.sunset[0]);
+                sunsetHtml = `${ssDate.getHours().toString().padStart(2, '0')}:${ssDate.getMinutes().toString().padStart(2, '0')}`;
+            }
+
+            let tideHtml = '';
+            if (AppState.isCoastal && AppState.tideData) {
+                let highTides = [];
+                let lowTides = [];
+                for (let i = 1; i < AppState.tideData.length - 1; i++) {
+                    if (AppState.tideData[i] > AppState.tideData[i-1] && AppState.tideData[i] > AppState.tideData[i+1]) {
+                        highTides.push(`${new Date(AppState.weatherData.hourly.time[i]).getHours().toString().padStart(2, '0')}:00`);
+                    } else if (AppState.tideData[i] < AppState.tideData[i-1] && AppState.tideData[i] < AppState.tideData[i+1]) {
+                        lowTides.push(`${new Date(AppState.weatherData.hourly.time[i]).getHours().toString().padStart(2, '0')}:00`);
+                    }
+                }
+                tideHtml = `
+                    <div class="bg-red-50 p-3 rounded-xl border border-red-100 text-center flex flex-col justify-center">
+                        <span class="block text-red-600 text-xs font-bold mb-1">満潮</span>
+                        <span class="text-slate-700 font-medium text-sm sm:text-base">${highTides.length > 0 ? highTides.join(', ') : '-'}</span>
+                    </div>
+                    <div class="bg-blue-50 p-3 rounded-xl border border-blue-100 text-center flex flex-col justify-center">
+                        <span class="block text-blue-600 text-xs font-bold mb-1">干潮</span>
+                        <span class="text-slate-700 font-medium text-sm sm:text-base">${lowTides.length > 0 ? lowTides.join(', ') : '-'}</span>
+                    </div>
+                `;
+            } else {
+                tideHtml = `
+                    <div class="col-span-2 sm:col-span-3 lg:col-span-2 bg-slate-50 p-3 rounded-xl border border-slate-200 text-center flex items-center justify-center">
+                        <span class="text-slate-500 text-sm font-medium">内陸のため潮位情報なし</span>
+                    </div>
+                `;
+            }
+
+            DOM.mainSummary.innerHTML = `
+                <div class="bg-red-50 p-3 rounded-xl border border-red-100 text-center flex flex-col justify-center">
+                    <span class="block text-red-600 text-xs font-bold mb-1">最高気温</span>
+                    <span class="${getTempClass(maxTemp)} text-lg sm:text-xl">${maxTemp}<span class="text-xs ml-0.5">℃</span></span>
+                </div>
+                <div class="bg-blue-50 p-3 rounded-xl border border-blue-100 text-center flex flex-col justify-center">
+                    <span class="block text-blue-600 text-xs font-bold mb-1">最低気温</span>
+                    <span class="${getTempClass(minTemp)} text-lg sm:text-xl">${minTemp}<span class="text-xs ml-0.5">℃</span></span>
+                </div>
+                <div class="bg-indigo-50 p-3 rounded-xl border border-indigo-100 text-center flex flex-col justify-center">
+                    <span class="block text-indigo-600 text-xs font-bold mb-1">総雨量</span>
+                    <span class="${getPrecipClass(totalPrecip)} text-lg sm:text-xl">${totalPrecip}<span class="text-xs ml-0.5">mm</span></span>
+                </div>
+                <div class="bg-orange-50 p-3 rounded-xl border border-orange-100 text-center flex flex-col justify-center">
+                    <span class="block text-orange-600 text-xs font-bold mb-1">日の出</span>
+                    <span class="text-slate-700 font-medium text-lg sm:text-xl">${sunriseHtml}</span>
+                </div>
+                <div class="bg-purple-50 p-3 rounded-xl border border-purple-100 text-center flex flex-col justify-center">
+                    <span class="block text-purple-600 text-xs font-bold mb-1">日の入り</span>
+                    <span class="text-slate-700 font-medium text-lg sm:text-xl">${sunsetHtml}</span>
+                </div>
+                ${tideHtml}
+            `;
+            DOM.summary.classList.remove('hidden');
+        }
+
+        function renderWeeklyForecast(dailyData) {
+            DOM.weeklyCards.innerHTML = '';
+            if (!dailyData || !dailyData.daily) {
+                DOM.weeklySec.classList.add('hidden');
+                return;
+            }
+            DOM.weeklySec.classList.remove('hidden');
+
+            const dates = dailyData.daily.time;
+            const maxTemps = dailyData.daily.temperature_2m_max;
+            const minTemps = dailyData.daily.temperature_2m_min;
+            const precips = dailyData.daily.precipitation_sum;
+            const daysOfWeek = ['日', '月', '火', '水', '木', '金', '土'];
+
+            dates.forEach((dateStr, i) => {
+                const d = new Date(dateStr);
+                const isFirst = (i === 0);
+                const precipVal = precips[i] !== null ? precips[i].toFixed(1) : '-';
+                const icon = precipVal === '-' ? '❓' : (precipVal > 0 ? '☔' : '☀️');
+
+                DOM.weeklyCards.innerHTML += `
+                    <div class="${isFirst ? 'bg-blue-50 border-blue-200' : 'bg-slate-50 border-slate-200'} border rounded-xl p-3 flex flex-col items-center shadow-sm shrink-0 min-w-[100px] sm:min-w-[120px]">
+                        <div class="text-sm font-bold ${isFirst ? 'text-blue-700' : 'text-slate-700'} mb-1">${d.getMonth() + 1}/${d.getDate()} <span class="text-xs">(${daysOfWeek[d.getDay()]})</span></div>
+                        <div class="text-2xl mb-2">${icon}</div>
+                        <div class="w-full grid grid-cols-2 gap-1 text-center text-xs mb-2">
+                            <div class="text-red-600 font-bold">${maxTemps[i] !== null ? maxTemps[i].toFixed(1) : '-'}</div>
+                            <div class="text-blue-600 font-bold">${minTemps[i] !== null ? minTemps[i].toFixed(1) : '-'}</div>
+                        </div>
+                        <div class="mt-auto text-xs font-medium text-indigo-600 bg-indigo-50 w-full text-center rounded py-1 whitespace-nowrap">
+                            ${precipVal} mm
+                        </div>
+                    </div>
+                `;
+            });
+        }
+
+        function renderHistoricalData(historyResults, targetDateObj) {
+            DOM.histCards.innerHTML = '';
+            if (!historyResults || historyResults.every(r => r === null)) {
+                DOM.histSec.classList.add('hidden');
+                return;
+            }
+            
+            DOM.histSec.classList.remove('hidden');
+            
+            historyResults.forEach((histData, index) => {
+                const pastYear = targetDateObj.getFullYear() - (index + 1);
+                
+                if (!histData || !histData.hourly) {
+                    DOM.histCards.innerHTML += `<div class="bg-white rounded-xl p-4 border border-slate-200 shadow-sm flex items-center justify-center text-slate-400 text-sm h-full min-h-[200px]">${pastYear}年のデータは取得できませんでした</div>`;
+                    return;
+                }
+                
+                const temps = histData.hourly.temperature_2m;
+                const precips = histData.hourly.precipitation;
+                
+                const maxTemp = Math.max(...temps).toFixed(1);
+                const minTemp = Math.min(...temps).toFixed(1);
+                const totalPrecip = precips.reduce((a, b) => a + b, 0).toFixed(1);
+                
+                let tableRows = '';
+                for(let i=0; i<temps.length; i+=3) {
+                    tableRows += `
+                        <tr class="border-b border-slate-100 hover:bg-slate-50">
+                            <td class="py-2 text-slate-500 font-medium w-16">${new Date(histData.hourly.time[i]).getHours().toString().padStart(2, '0')}:00</td>
+                            <td class="py-2 ${getPrecipClass(precips[i])}">${getWeatherIcon(precips[i])} ${precips[i].toFixed(1)} <span class="text-xs text-slate-400">mm</span></td>
+                            <td class="py-2 ${getTempClass(temps[i])} text-right">${temps[i].toFixed(1)} <span class="text-xs opacity-60">℃</span></td>
+                        </tr>
+                    `;
+                }
+                
+                DOM.histCards.innerHTML += `
+                    <div class="bg-white rounded-xl p-4 border border-slate-200 shadow-sm flex flex-col">
+                        <h3 class="font-bold text-lg text-slate-700 mb-3 text-center border-b border-slate-100 pb-2">${pastYear}年</h3>
+                        <div class="flex gap-2 text-sm mb-4">
+                            <div class="bg-red-50 p-2 rounded-lg border border-red-100 flex-1 text-center">
+                                <div class="text-red-800 text-xs mb-1">最高</div>
+                                <div class="font-bold text-lg ${getTempClass(maxTemp)}">${maxTemp}<span class="text-xs ml-0.5">℃</span></div>
+                            </div>
+                            <div class="bg-blue-50 p-2 rounded-lg border border-blue-100 flex-1 text-center">
+                                <div class="text-blue-800 text-xs mb-1">最低</div>
+                                <div class="font-bold text-lg ${getTempClass(minTemp)}">${minTemp}<span class="text-xs ml-0.5">℃</span></div>
+                            </div>
+                            <div class="bg-indigo-50 p-2 rounded-lg border border-indigo-100 flex-1 text-center">
+                                <div class="text-indigo-800 text-xs mb-1">雨量</div>
+                                <div class="font-bold text-lg text-indigo-600">${totalPrecip}<span class="text-xs ml-0.5">mm</span></div>
+                            </div>
+                        </div>
+                        <div class="flex-1 overflow-y-auto pr-1 custom-scrollbar" style="max-height: 180px;">
+                            <table class="w-full text-sm text-left"><tbody>${tableRows}</tbody></table>
+                        </div>
+                    </div>
+                `;
+            });
+        }
+
+        function renderAlerts() {
+            DOM.alerts.innerHTML = ''; 
+            DOM.alerts.classList.add('hidden');
+
+            const temps = AppState.weatherData.hourly.temperature_2m;
+            const winds = AppState.weatherData.hourly.wind_speed_10m;
+            const precips = AppState.weatherData.hourly.precipitation;
+
+            const maxTemp = Math.max(...temps);
+            const maxWind = Math.max(...winds);
+            const maxPrecip = Math.max(...precips);
+            let hasAlerts = false;
+
+            if (!AppState.isCoastal) {
+                appendAlert('bg-slate-100', 'text-slate-600', 'border-slate-300', `⛰️ 【内陸部】この地域は周辺に海域が見つからなかったため、潮位データは非表示です。`);
+                hasAlerts = true;
+            }
+
+            if (AppState.isCoastal && AppState.tideData) {
+                let hasFloodRisk = false;
+                for (let i = 0; i < precips.length; i++) {
+                    if (precips[i] >= 10 && AppState.tideData[i] >= 1.4) { hasFloodRisk = true; break; }
+                }
+                if (hasFloodRisk) {
+                    appendAlert('bg-purple-100', 'text-purple-900', 'border-purple-300', `🚨 【河川氾濫 警戒】強い雨と満潮（高い潮位）が重なる時間帯があります。海への排水がしにくくなるため、河川の増水・氾濫に厳重に警戒してください。`);
+                    hasAlerts = true;
+                }
+            }
+
+            if (maxTemp >= 35) {
+                appendAlert('bg-red-100', 'text-red-800', 'border-red-200', `🥵 【熱中症 危険】最高気温が ${maxTemp.toFixed(1)}℃ に達する予報です。涼しい室内で過ごしてください。`);
+                hasAlerts = true;
+            } else if (maxTemp >= 30) {
+                appendAlert('bg-orange-100', 'text-orange-800', 'border-orange-200', `⚠️ 【熱中症 警戒】最高気温が ${maxTemp.toFixed(1)}℃ に達する予報です。こまめな水分・塩分補給を行ってください。`);
+                hasAlerts = true;
+            }
+
+            if (maxWind >= 10) {
+                appendAlert('bg-yellow-100', 'text-yellow-800', 'border-yellow-200', `💨 【強風 注意】最大風速 ${maxWind.toFixed(1)}m/s の強風が吹く時間帯があります。`);
+                hasAlerts = true;
+            }
+
+            if (maxPrecip >= 10) {
+                appendAlert('bg-blue-100', 'text-blue-800', 'border-blue-200', `☔ 【大雨 注意】1時間に ${maxPrecip.toFixed(1)}mm 以上の強い雨が降る予報です。`);
+                hasAlerts = true;
+            }
+
+            if (hasAlerts) DOM.alerts.classList.remove('hidden'), DOM.alerts.classList.add('flex');
+        }
+
+        function appendAlert(bgClass, textClass, borderClass, message) {
+            const div = document.createElement('div');
+            div.className = `p-4 rounded-lg border ${bgClass} ${textClass} ${borderClass} font-medium text-sm flex items-start gap-2 shadow-sm`;
+            div.innerHTML = `<span>${message}</span>`;
+            DOM.alerts.appendChild(div);
+        }
+
+        // -----------------------------------------------------------
+        // 6. ユーティリティ・計算ツール
+        // -----------------------------------------------------------
+        
+        function formatDate(date) {
+            return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+        }
+
+        function getPrecipClass(precip) {
+            if (precip > 20) return 'text-purple-600 font-bold';
+            if (precip > 10) return 'text-red-600 font-bold';
+            return 'text-slate-700';
+        }
+
+        function getTempClass(temp) {
+            if (temp > 38) return 'text-purple-600 font-bold';
+            if (temp < 0) return 'text-blue-600 font-bold';
+            if (temp >= 1 && temp <= 5) return 'text-cyan-500 font-bold';
+            if (temp >= 25 && temp < 30) return 'text-amber-500 font-bold';
+            if (temp >= 30) return 'text-red-600 font-bold';
+            return 'text-slate-700';
+        }
+
+        function getWeatherIcon(precip) {
+            return precip === 0 ? '<span class="text-orange-400 mr-2">☀️</span>' : '<span class="text-blue-500 mr-2">☔</span>';
+        }
+
+        function getWindClass(wind) {
+            return wind >= 10 ? 'text-red-600 font-bold' : 'text-slate-700';
+        }
+
+        function calculateMoonAgeAndTide(date) {
+            const knownNewMoon = new Date(Date.UTC(2000, 0, 6, 18, 14));
+            const diffDays = (date.getTime() - knownNewMoon.getTime()) / (1000 * 60 * 60 * 24);
+            const moonCycle = 29.530588853;
+            let moonAge = (diffDays % moonCycle + moonCycle) % moonCycle;
+            const ageNumber = Math.round(moonAge);
+            
+            let tideName = "中潮";
+            if ([0, 1, 2, 14, 15, 16, 29, 30].includes(ageNumber)) tideName = "大潮";
+            else if ([7, 8, 9, 22, 23, 24].includes(ageNumber)) tideName = "小潮";
+            else if (ageNumber === 10 || ageNumber === 25) tideName = "長潮";
+            else if (ageNumber === 11 || ageNumber === 26) tideName = "若潮";
+
+            return { ageNumber, age: moonAge.toFixed(1), tideName };
+        }
+
+        function generateMockTideData(times, moonAgeNumber) {
+            const periodHours = 12.42; 
+            const cyclePos = (moonAgeNumber % 15) / 15; 
+            const amplitude = 0.4 + (0.6 * ((Math.cos(cyclePos * Math.PI * 2) + 1) / 2)); 
+
+            return times.map(timeStr => {
+                const hoursSinceEpoch = new Date(timeStr).getTime() / (1000 * 60 * 60);
+                const tideLevel = amplitude * Math.sin(2 * Math.PI * hoursSinceEpoch / periodHours) + 1.0;
+                return Number(tideLevel.toFixed(2));
+            });
+        }
+
+        // --- アプリケーション起動 ---
+        document.addEventListener('DOMContentLoaded', initApp);
+
+    </script>
+</body>
+</html>
